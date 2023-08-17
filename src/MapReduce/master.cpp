@@ -20,19 +20,24 @@ public:
     static void* waitMapTask(void *arg);        //回收map的定时线程
     static void* waitReduceTask(void* arg);     //回收reduce的定时线程
     static void* waitTime(void* arg);           //用于定时的线程
+
     Master(int mapNum = 8, int reduceNum = 8);  //带缺省值的有参构造，也可通过命令行传参指定，我偷懒少打两个数字直接放构造函数里
+
     void GetAllFile(char* file[], int index);   //从argv[]中获取待处理的文件名
+
     int getMapNum(){                            
         return m_mapNum;
     }
     int getReduceNum(){
         return m_reduceNum;
     }
+
     string assignTask();                        //分配map任务的函数，RPC
     int assignReduceTask();                     //分配reduce任务的函数，RPC
     void setMapStat(string filename);           //设置特定map任务完成的函数，RPC
     bool isMapDone();                           //检验所有map任务是否完成，RPC
     void setReduceStat(int taskIndex);          //设置特定reduce任务完成的函数，RPC
+    
     void waitMap(string filename);
     void waitReduce(int reduceIdx);
     bool Done();                                //判断reduce任务是否已经完成

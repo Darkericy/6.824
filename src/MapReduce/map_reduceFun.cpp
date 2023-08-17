@@ -16,6 +16,9 @@ class KeyValue{
 public:
     string key;
     string value;
+
+    KeyValue(string k, string v): key(k), value(v) {};
+    KeyValue(): key(""), value("") {};
 };
 
 /**
@@ -25,11 +28,12 @@ public:
  * @param length 传入的字符串长度
  * @return vector<string> 返回各个分割后的单词列表
  */
-vector<string> split(char* text, int length){
+vector<string> split(const string& text){
+    //  这里就不用string流了，毕竟我们只要单词而不要其他字符。
     vector<string> str;
     string tmp = "";
-    for(int i = 0; i < length; i++){
-        if((text[i] >= 'A' && text[i] <= 'Z') || (text[i] >= 'a' && text[i] <= 'z')){
+    for(int i = 0; i < text.size(); i++){
+        if(isalpha(text[i])){
             tmp += text[i];
         }else{
             if(tmp.size() != 0) str.push_back(tmp);      
@@ -47,15 +51,12 @@ vector<string> split(char* text, int length){
  */
 extern "C" vector<KeyValue> mapF(KeyValue kv){
     vector<KeyValue> kvs;
-    int len = kv.value.size();
-    char content[len + 1];
-    strcpy(content, kv.value.c_str());
-    vector<string> str = split(content, len);
+    // int len = kv.value.size();
+    // char content[len + 1];
+    // strcpy(content, kv.value.c_str());
+    vector<string> str = split(kv.value);
     for(const auto& s : str){
-        KeyValue tmp;
-        tmp.key = s;
-        tmp.value = "1";
-        kvs.emplace_back(tmp);
+        kvs.emplace_back(s, "1");   //修改一下，不然用emplace_back意义何在
     }
     return kvs;
 }
