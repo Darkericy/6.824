@@ -283,7 +283,7 @@ void* reduceWorker(void* arg){
         //若工作完成直接退出reduce的worker线程
         ret = client.call<bool>("Done").val();
         if(ret){
-            return NULL;
+            return nullptr;
         }
         int reduceTaskIdx = client.call<int>("assignReduceTask").val();
         if(reduceTaskIdx == -1) continue;
