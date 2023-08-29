@@ -81,6 +81,8 @@ public:
     int m_prevLogTerm;
     int m_leaderCommit;
     string m_sendLogs;
+
+    //这两个流函数是rpc框架中的，所以暂时不研究
     friend Serializer& operator >> (Serializer& in, AppendEntriesArgs& d) {
 		in >> d.m_term >> d.m_leaderId >> d.m_prevLogIndex >> d.m_prevLogTerm >> d.m_leaderCommit >> d.m_sendLogs;
 		return in;
@@ -291,6 +293,7 @@ void* Raft::listenForAppend(void* arg){
     printf("exit!\n");
 }
 
+//TODO：这里的loop有点逻辑问题
 void* Raft::electionLoop(void* arg){
     Raft* raft = (Raft*)arg;
     bool resetFlag = false;
@@ -357,6 +360,7 @@ void* Raft::electionLoop(void* arg){
     }
 }
 
+//TODO:dead以后就不应该再循环这个线程了阿
 void* Raft::callRequestVote(void* arg){
     Raft* raft = (Raft*) arg;
     buttonrpc client;
@@ -456,12 +460,14 @@ RequestVoteReply Raft::requestVote(RequestVoteArgs args){
     return reply;
 }
 
+//这个就是leader的心跳逻辑
 void* Raft::processEntriesLoop(void* arg){
     Raft* raft = (Raft*)arg;
     while(!raft->dead){
         usleep(1000);
         raft->m_lock.lock();
         if(raft->m_state != LEADER){
+            //原来如此这是只有leader才会区处理的逻辑
             raft->m_lock.unlock();
             continue;
         }
@@ -625,6 +631,7 @@ AppendEntriesReply Raft::appendEntries(AppendEntriesArgs args){
 
     if(args.m_term >= m_curTerm){
         if(args.m_term > m_curTerm){
+            //这意味着一件事，新的leader产生了，在新的任期里，刷新我投票的记录
             m_votedFor = -1;
             saveRaftState();
         }
@@ -634,7 +641,7 @@ AppendEntriesReply Raft::appendEntries(AppendEntriesArgs args){
     }
     printf("[%d] recv append from [%d] at self term%d, send term %d, duration is %d\n",
             m_peerId, args.m_leaderId, m_curTerm, args.m_term, getMyduration(m_lastWakeTime));
-    gettimeofday(&m_lastWakeTime, NULL);
+    gettimeofday(&m_lastWakeTime, NULL);    //在每一次收到心跳后都应该刷新时间
     // persister()
 
     int logSize = 0;
@@ -642,8 +649,9 @@ AppendEntriesReply Raft::appendEntries(AppendEntriesArgs args){
         for(const auto& log : recvLog){
             push_backLog(log);
         }
-        saveRaftState();
+        saveRaftState();    //持久化的频率是否太频繁了？
         logSize = m_logs.size();
+        //注意提交节点的更新
         if(m_commitIndex < args.m_leaderCommit){
             m_commitIndex = min(args.m_leaderCommit, logSize);
         }
@@ -658,6 +666,8 @@ AppendEntriesReply Raft::appendEntries(AppendEntriesArgs args){
         return reply;
     }
 
+
+    //没有这个日志
     if(m_logs.size() < args.m_prevLogIndex){
         printf(" [%d]'s logs.size : %d < [%d]'s prevLogIdx : %d\n", m_peerId, m_logs.size(), args.m_leaderId, args.m_prevLogIndex);
         reply.m_conflict_index = m_logs.size();    //索引要加1
@@ -665,6 +675,7 @@ AppendEntriesReply Raft::appendEntries(AppendEntriesArgs args){
         reply.m_success = false;
         return reply;
     }
+    //日志冲突
     if(args.m_prevLogIndex > 0 && m_logs[args.m_prevLogIndex - 1].m_term != args.m_prevLogTerm){
         printf(" [%d]'s prevLogterm : %d != [%d]'s prevLogTerm : %d\n", m_peerId, m_logs[args.m_prevLogIndex - 1].m_term, args.m_leaderId, args.m_prevLogTerm);
 
@@ -682,14 +693,15 @@ AppendEntriesReply Raft::appendEntries(AppendEntriesArgs args){
 
     logSize = m_logs.size();
     for(int i = args.m_prevLogIndex; i < logSize; i++){
-        m_logs.pop_back();
+        m_logs.pop_back();  //他甚至直接用pop_back,我哭死。
     }
     // m_logs.insert(m_logs.end(), recvLog.begin(), recvLog.end());
     for(const auto& log : recvLog){
         push_backLog(log);
     }
-    saveRaftState();
+    saveRaftState();    //这里调用还算合理
     logSize = m_logs.size();
+    //提交任务
     if(m_commitIndex < args.m_leaderCommit){
         m_commitIndex = min(args.m_leaderCommit, logSize);
     }
@@ -864,7 +876,7 @@ int main(int argc, char* argv[]){
     usleep(400000);
     for(int i = 0; i < peers.size(); i++){
         if(raft[i].getState().second){
-            for(int j = 0; j < 1000; j++){
+            for(int j = 0; j < 5; j++){
                 Operation opera;
                 opera.op = "put";opera.key = to_string(j);opera.value = to_string(j);
                 raft[i].start(opera);
@@ -878,6 +890,17 @@ int main(int argc, char* argv[]){
             raft[i].kill();              //kill后选举及心跳的线程会宕机，会产生新的leader，很久之后了，因为上面传了1000条日志
             break;
         }
+    }
+    usleep(400000);
+    for(int i = 0; i < peers.size(); i++){
+        if(raft[i].getState().second){
+            for(int j = 0; j < 5; j++){
+                Operation opera;
+                opera.op = "put";opera.key = to_string(j);opera.value = to_string(j);
+                raft[i].start(opera);
+                usleep(50000);
+            }
+        }else continue;
     }
     //------------------------------test部分--------------------------
     while(1);
