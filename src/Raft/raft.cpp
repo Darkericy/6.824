@@ -10,7 +10,7 @@
 #include "./buttonrpc-master/buttonrpc.hpp"
 using namespace std;
 
-#define COMMOM_PORT 1234
+#define COMMOM_PORT 2403
 #define HEART_BEART_PERIOD 100000
 
 //需要结合LAB3实现应用层dataBase和Raft交互用的，通过getCmd()转化为applyMsg的command
@@ -103,19 +103,20 @@ class RequestVoteArgs{
 public:
     int term;
     int candidateId;
-    int lastLogTerm;
-    int lastLogIndex;
+    int lastLogTerm;        //任期
+    int lastLogIndex;       //日志位置
 };
 
+//选举返回的消息
 class RequestVoteReply{
 public:
     int term;
-    bool VoteGranted;
+    bool VoteGranted;   //是否支持
 };
 
 class Raft{
 public:
-    static void* listenForVote(void* arg);          //用于监听voteRPC的server线程
+    static void* listenForVote(void* arg);          //用于监听voteRPC的server线程（leader选举）
     static void* listenForAppend(void* arg);        //用于监听appendRPC的server线程
     static void* processEntriesLoop(void* arg);     //持续处理日志同步的守护线程
     static void* electionLoop(void* arg);           //持续处理选举的守护线程
@@ -126,7 +127,7 @@ public:
     // static void* save(void* arg);
     enum RAFT_STATE {LEADER = 0, CANDIDATE, FOLLOWER};          //用枚举定义的raft三种状态
     void Make(vector<PeersInfo> peers, int id);                 //raft初始化
-    int getMyduration(timeval last);                            //传入某个特定计算到当下的持续时间
+    int getMyduration(timeval last);                            //传入某个特定计算到当下的持续时间（距离lastwaketime的时间）
     void setBroadcastTime();                                    //重新设定BroadcastTime，成为leader发心跳的时候需要重置
     pair<int, bool> getState();                                 //在LAB3中会用到，提前留出来的接口判断是否leader
     RequestVoteReply requestVote(RequestVoteArgs args);         //vote的RPChandler
@@ -176,13 +177,16 @@ private:
     struct timeval m_lastBroadcastTime;
 };
 
+//作基本的初始化
+//读取持久化内容
+//开三个线程
 void Raft::Make(vector<PeersInfo> peers, int id){
     m_peers = peers;
     //this->persister = persister;
     m_peerId = id;
     dead = 0;
 
-    m_state = FOLLOWER;
+    m_state = FOLLOWER; //初始时都初始化为follower
     m_curTerm = 0;
     m_leaderId = -1;
     m_votedFor = -1;
@@ -292,13 +296,14 @@ void* Raft::electionLoop(void* arg){
     bool resetFlag = false;
     while(!raft->dead){
         
-        int timeOut = rand()%200000 + 200000;
+        int timeOut = rand()%200000 + 200000;   //一个随机的超时时间
         while(1){
             usleep(1000);
-            raft->m_lock.lock();
+            raft->m_lock.lock();                //这里又要给他上锁吗
 
             int during_time = raft->getMyduration(raft->m_lastWakeTime);
             if(raft->m_state == FOLLOWER && during_time > timeOut){
+                //如果超时他进入选举状态
                 raft->m_state = CANDIDATE;
             }
 
@@ -355,6 +360,8 @@ void* Raft::electionLoop(void* arg){
 void* Raft::callRequestVote(void* arg){
     Raft* raft = (Raft*) arg;
     buttonrpc client;
+
+    //这一段是在确保启动客户端给所有其他的raft发送投票
     raft->m_lock.lock();
     RequestVoteArgs args;
     args.candidateId = raft->m_peerId;
@@ -373,14 +380,16 @@ void* Raft::callRequestVote(void* arg){
         raft->cur_peerId = 0;
     }
     raft->m_lock.unlock();
+    //end
+
 
     RequestVoteReply reply = client.call<RequestVoteReply>("requestVote", args).val();
 
     raft->m_lock.lock();
     raft->finishedVote++;
-    raft->m_cond.signal();
+    raft->m_cond.signal();              //这里的唤醒，是否有点早了？
     if(reply.term > raft->m_curTerm){
-        raft->m_state = FOLLOWER;
+        raft->m_state = FOLLOWER;       //就是在这里他有权修改当前的选举者，TODO：这是否有必要？
         raft->m_curTerm = reply.term;
         raft->m_votedFor = -1;
         raft->readRaftState();
@@ -418,17 +427,20 @@ RequestVoteReply Raft::requestVote(RequestVoteArgs args){
     reply.term = m_curTerm;
 
     if(m_curTerm > args.term){
+        //我的任期要比他的任期大，返回false
         m_lock.unlock();
         return reply;
     }
 
     if(m_curTerm < args.term){
+        //他的任期严格小于我的任期
         m_state = FOLLOWER;
         m_curTerm = args.term;
         m_votedFor = -1;
     }
 
     if(m_votedFor == -1 || m_votedFor == args.candidateId){
+        //投票给一个选举人的两个条件，要么任期大
         m_lock.unlock();
         bool ret = checkLogUptodate(args.lastLogTerm, args.lastLogIndex);
         if(!ret) return reply;
@@ -727,6 +739,9 @@ void Raft::printLogs(){
     cout<<endl;
 }
 
+//如果每一次调用都全部冲头去写，这是否，太耗费时间了。
+//TODO：将版本号和votedfor放入文件一，每次更新。日志则放入文件2,每次追加。
+//TODO：采取分行的方法，优化log的存储方式。
 void Raft::serialize(){
     string str;
     str += to_string(this->persister.cur_term) + ";" + to_string(this->persister.votedFor) + ";";
@@ -802,6 +817,7 @@ bool Raft::deserialize(){
 
 void Raft::readRaftState(){
     //只在初始化的时候调用，没必要加锁，因为run()在其之后才执行
+    //TODO：在读取持久化数据失败时没有容错操作
     bool ret = this->deserialize();
     if(!ret) return;
     this->m_curTerm = this->persister.cur_term;
@@ -827,7 +843,7 @@ int main(int argc, char* argv[]){
     }
     int peersNum = atoi(argv[1]);
     if(peersNum % 2 == 0){
-        printf("the peersNum should be odd\n");  //必须传入奇数，这是raft集群的要求
+        printf("the peersNum should be odd\n");  //必须传入奇数，这是raft集群的要求，也是灵魂
         exit(-1);
     }
     srand((unsigned)time(NULL));
