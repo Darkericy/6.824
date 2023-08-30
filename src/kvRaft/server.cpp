@@ -14,7 +14,7 @@ typedef std::chrono::steady_clock::time_point myTime;
 
 class kvServerInfo{
 public:
-    PeersInfo peersInfo;
+    PeersInfo peersInfo;    //持久化数据
     vector<int> m_kvPort;
 };
 
@@ -22,6 +22,7 @@ public:
 class Select{
 public:
     Select(string fifoName);
+
     string fifoName;
     bool isRecved;
     static void* work(void* arg);
@@ -43,10 +44,11 @@ void* Select::work(void* arg){
     read(fd, buf, sizeof(buf));
     select->isRecved = true;
     close(fd);
-    unlink(select->fifoName.c_str());
+    unlink(select->fifoName.c_str());       //删除命名管道，已经打开的描述符不受影响，但后面不能再打开。
 }
 
 //用于保存处理客户端RPC请求时的上下文信息，每次调用start()且为leader时会存到对应的map中，key为start返回的日志index，独一无二
+//命令上下文，高级
 class OpContext{
 public:
     OpContext(Operation op);
@@ -69,6 +71,7 @@ OpContext::OpContext(Operation op){
     value = "";
 }
 
+//get请求
 class GetArgs{
 public:
     string key;
@@ -84,6 +87,7 @@ public:
 	}
 };
 
+//get回复
 class GetReply{
 public:
     string value;
@@ -151,7 +155,7 @@ private:
     // bool dead;
 
     int m_maxraftstate;  //超过这个大小就快照
-    int m_lastAppliedIndex;
+    int m_lastAppliedIndex; //怀疑是最后以提交的点
 
     unordered_map<string, string> m_database;  //模拟数据库
     unordered_map<int, int> m_clientSeqMap;    //只记录特定客户端已提交的最大请求ID
@@ -162,7 +166,7 @@ void KVServer::StartKvServer(vector<kvServerInfo>& kvInfo, int me, int maxRaftSt
     
     this->m_id = me;
     m_port = kvInfo[me].m_kvPort;
-    vector<PeersInfo> peers = getRaftPort(kvInfo);
+    vector<PeersInfo> peers = getRaftPort(kvInfo);  //获取raft地层的port
     this->m_maxraftstate = maxRaftState;
     m_lastAppliedIndex = 0;
     
@@ -541,7 +545,7 @@ void KVServer::activateRaft(){
 int main(){
     vector<kvServerInfo> servers = getKvServerPort(5);
     srand((unsigned)time(NULL));
-    KVServer* kv = new KVServer[servers.size()];
+    KVServer* kv = new KVServer[servers.size()];    //5个kv服务器
     for(int i = 0; i < 5; i++){
         kv[i].StartKvServer(servers, i, 1024);
     }

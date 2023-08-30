@@ -50,8 +50,9 @@ public:
     string op;
     string key;
     string value;
-    int clientId;
-    int requestId;
+
+    int clientId;       //这个是上层的client吗？
+    int requestId;      //请求id？
     int term;
     int index;
 };
