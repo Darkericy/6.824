@@ -580,6 +580,7 @@ void* Raft::processEntriesLoop(void* arg){
         int i = 0;
         for(auto& server : raft->m_peers){
             if(server.m_peerId == raft->m_peerId) continue;
+            //TODO：这部分逻辑可以优化
             if(raft->m_nextIndex[server.m_peerId] <= raft->m_lastIncludedIndex){        //进入install分支的条件，日志落后于leader的快照
                 printf("%d send install rpc to %d, whose nextIdx is %d, but leader's lastincludeIdx is %d\n", 
                     raft->m_peerId, server.m_peerId, raft->m_nextIndex[server.m_peerId], raft->m_lastIncludedIndex);
@@ -608,14 +609,17 @@ void* Raft::sendInstallSnapShot(void* arg){
     //     printf("in install %d's server.isInstallFlag is %d\n", i, raft->m_peers[i].isInstallFlag ? 1 : 0);
     // }
     for(int i = 0; i < raft->m_peers.size(); i++){
+        //如果是leader
         if(raft->m_peers[i].m_peerId == raft->m_peerId){
             // printf("%d is leader, continue\n", i);
             continue;
         }
+        //如果不需要快照
         if(!raft->m_peers[i].isInstallFlag){
             // printf("%d is append, continue\n", i);
             continue;
         }
+        //已经在刚才的另一个循环中快照了
         if(raft->isExistIndex.count(i)){
             // printf("%d is chongfu, continue\n", i);
             continue;
@@ -1196,6 +1200,7 @@ void Raft::recvSnapShot(string snapShot, int lastIncludedIndex){
 
 }
 
+//要注意和上一次快照节点的不同
 int Raft::idxToCompressLogPos(int index){
     return index - this->m_lastIncludedIndex - 1;
 }
