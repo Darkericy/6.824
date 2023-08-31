@@ -947,6 +947,7 @@ AppendEntriesReply Raft::appendEntries(AppendEntriesArgs args){
             return reply;
         }
         //走到这里必然有日志，且prevLogIndex > 0
+        //快速回滚
         if(m_logs[idxToCompressLogPos(args.m_prevLogIndex)].m_term != args.m_prevLogTerm){
             printf(" [%d]'s prevLogterm : %d != [%d]'s prevLogTerm : %d\n", m_peerId, m_logs[idxToCompressLogPos(args.m_prevLogIndex)].m_term, args.m_leaderId, args.m_prevLogTerm);
 

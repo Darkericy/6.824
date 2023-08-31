@@ -194,6 +194,7 @@ int main(){
     srand((unsigned)time(NULL));
     vector<vector<int>> port = getServerPort(5);
     // printf("server.size() = %d\n", port.size());
+    // 这里甚至是单线程
     Clerk clerk(port);
     Clerk clerk2(port);
     Clerk clerk3(port);

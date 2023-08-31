@@ -220,7 +220,7 @@ GetReply KVServer::get(GetArgs args){
     operation.clientId = args.clientId;
     operation.requestId = args.requestId;
 
-    StartRet ret = m_raft.start(operation);
+    StartRet ret = m_raft.start(operation);     //根据要求，start要立即返回
     operation.term = ret.m_curTerm;
     operation.index = ret.m_cmdIndex;
 
